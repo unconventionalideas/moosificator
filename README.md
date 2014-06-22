@@ -1,4 +1,9 @@
-appengine-skeleton
+moosificator
 =============================
 
-This is a generated application from the appengine-skeleton archetype.
+It moosificates faces.
+
+Parameters
+----------
+
+`image`: URL of the source image to moosificate.

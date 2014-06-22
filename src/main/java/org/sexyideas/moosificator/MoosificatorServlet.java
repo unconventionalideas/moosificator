@@ -1,8 +1,10 @@
 package org.sexyideas.moosificator;
 
-import jjil.algorithm.Gray8Rgb;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.collect.Ordering;
 import jjil.algorithm.RgbAvgGray;
-import jjil.core.Image;
 import jjil.core.Rect;
 import jjil.core.RgbImage;
 import jjil.j2se.RgbImageJ2se;
@@ -23,21 +25,38 @@ import java.awt.image.WritableRenderedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class MoosificatorServlet extends HttpServlet {
     private BufferedImage mooseOverlay;
+    private LoadingCache<URL, BufferedImage> imageCache;
+    private float mooseProportionRatio;
 
     @Override
     public void init() throws ServletException {
         super.init();
         try {
             this.mooseOverlay = ImageIO.read(MoosificatorServlet.class.getResourceAsStream("/moose/moose.png"));
+            this.mooseProportionRatio = (float) this.mooseOverlay.getWidth() / (float) this.mooseOverlay.getHeight();
+
         } catch (IOException e) {
             throw new ServletException("Failed to load moose image to initialize moosificator", e);
         }
+
+        this.imageCache = CacheBuilder.<URL, BufferedImage>newBuilder()
+                .maximumSize(5)
+                .expireAfterWrite(1, TimeUnit.DAYS)
+                .build(new CacheLoader<URL, BufferedImage>() {
+                    @Override
+                    public BufferedImage load(URL key) throws Exception {
+                        return ImageIO.read(key);
+                    }
+                });
     }
 
     @Override
@@ -46,18 +65,27 @@ public class MoosificatorServlet extends HttpServlet {
         String imageUrlParameter = req.getParameter("image");
         if (imageUrlParameter == null) {
             resp.setStatus(400);
+            resp.getWriter().write("Missing paramater: [image]");
+            return;
+        }
+
+        URL imageUrl;
+        try {
+            imageUrl = new URL(imageUrlParameter);
+        } catch (MalformedURLException e) {
+            resp.setStatus(400);
+            resp.getWriter().write("Bad URL");
             return;
         }
 
         try {
-            URL imageUrl = new URL(imageUrlParameter);
-            BufferedImage sourceImage = ImageIO.read(imageUrl);
+            BufferedImage sourceImage = this.imageCache.get(imageUrl);
             RgbImage rgbImage = RgbImageJ2se.toRgbImage(sourceImage);
             RgbAvgGray toGray = new RgbAvgGray();
             toGray.push(rgbImage);
 
             InputStream profileInputStream = MoosificatorServlet.class.getResourceAsStream("/profiles/HCSB.txt");
-            Gray8DetectHaarMultiScale detectHaar = new Gray8DetectHaarMultiScale(profileInputStream, 1, 40);
+            Gray8DetectHaarMultiScale detectHaar = new Gray8DetectHaarMultiScale(profileInputStream, 1, 30);
 
             BufferedImage combined = new BufferedImage(sourceImage.getWidth(), sourceImage.getHeight(),
                     BufferedImage.TYPE_INT_ARGB);
@@ -65,20 +93,31 @@ public class MoosificatorServlet extends HttpServlet {
 
             Graphics g = combined.getGraphics();
             g.drawImage(sourceImage, 0, 0, null);
-            // TODO : Find unique rectangles. That is, detection returns multiple rectangles for the same face and we
-            // should keep only the largest one (right?) and skip all others contained within it.
-            for (Rect rectangle : rectangles) {
+
+            List<Rect> uniqueRectangles = findUniqueRectangles(rectangles);
+
+            for (Rect rectangle : uniqueRectangles) {
                 // Add a moose on the original image to overlay that region
                 g.drawImage(this.mooseOverlay, rectangle.getLeft(), rectangle.getTop(),
-                        rectangle.getWidth(), rectangle.getHeight(), null);
+                        rectangle.getWidth(), (int) (rectangle.getWidth() / this.mooseProportionRatio), null);
             }
 
             resp.setContentType("image/png");
             ImageIO.write(combined, "PNG", resp.getOutputStream());
-        } catch (jjil.core.Error error) {
+        } catch (Throwable error) {
             resp.setStatus(500);
             error.printStackTrace(new PrintWriter(resp.getWriter()));
         }
+    }
+
+    // TODO : Find unique rectangles. That is, detection returns multiple rectangles for the same face and we
+    // should keep only the largest one (right?) and skip all others contained within it.
+    private List<Rect> findUniqueRectangles(List<Rect> rectangles) {
+        List<Rect> uniqueRectangles = new ArrayList<Rect>();
+        Ordering<Rect> ordering = Ordering.from(new AreaComparator());
+        Rect largest = ordering.max(rectangles);
+        uniqueRectangles.add(largest);
+        return uniqueRectangles;
     }
 
     private static WritableRenderedImage toImage(RgbImage rgb) {
@@ -95,6 +134,13 @@ public class MoosificatorServlet extends HttpServlet {
                 null);
         im.setData(r);
         return im;
+    }
+
+    public class AreaComparator implements Comparator<Rect> {
+        @Override
+        public int compare(Rect o1, Rect o2) {
+            return o1.getArea() - o2.getArea();
+        }
     }
 
     public static void main(String[] args) throws Exception {

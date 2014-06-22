@@ -33,11 +33,15 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class MoosificatorServlet extends HttpServlet {
-    public static final float MAGNIFYING_FACTOR = 3.0f;
+    public static final float MOOSE_HEAD_LEFT_OFFSET = 138.f;
+    public static final float MOOSE_HEAD_TOP_OFFSET = 120.f;
+    public static final float MOOSE_HEAD_WIDTH = 115.f;
+    public static final float MOOSE_HEAD_HEIGHT = 115.f;
     private BufferedImage mooseOverlay;
     private LoadingCache<URL, BufferedImage> imageCache;
     private float mooseProportionRatio;
-    private float mooseHeadLeftOffset;
+    private float magnifyingFactor;
+
 
     @Override
     public void init() throws ServletException {
@@ -45,7 +49,7 @@ public class MoosificatorServlet extends HttpServlet {
         try {
             this.mooseOverlay = ImageIO.read(MoosificatorServlet.class.getResourceAsStream("/moose/moose.png"));
             this.mooseProportionRatio = (float) this.mooseOverlay.getWidth() / (float) this.mooseOverlay.getHeight();
-            this.mooseHeadLeftOffset = (float) (this.mooseOverlay.getWidth() * 0.4);
+            this.magnifyingFactor = this.mooseOverlay.getHeight() / MOOSE_HEAD_HEIGHT;
 
         } catch (IOException e) {
             throw new ServletException("Failed to load moose image to initialize moosificator", e);
@@ -99,13 +103,16 @@ public class MoosificatorServlet extends HttpServlet {
 
             List<Rect> uniqueRectangles = findUniqueRectangles(rectangles);
             for (Rect rectangle : uniqueRectangles) {
+                float effectiveHeight = rectangle.getHeight() * this.magnifyingFactor;
+                float effectiveWidth = effectiveHeight * this.mooseProportionRatio;
+
+                float effectiveTop = rectangle.getTop() - MOOSE_HEAD_TOP_OFFSET * effectiveHeight / this.mooseOverlay.getHeight();
+                float effectiveLeft = rectangle.getLeft() - MOOSE_HEAD_LEFT_OFFSET * effectiveWidth / this.mooseOverlay.getWidth();
 
                 // Add a moose on the original image to overlay that region
-                float effectiveWidth = rectangle.getWidth() * MAGNIFYING_FACTOR;
-                float effectiveHeight = effectiveWidth / this.mooseProportionRatio;
-                g.drawImage(this.mooseOverlay, (int) (rectangle.getLeft() - this.mooseHeadLeftOffset * MAGNIFYING_FACTOR),
-                        (int) (rectangle.getTop() - effectiveHeight / 3.f),
-                        (int) effectiveWidth, (int) effectiveHeight, null);
+                g.drawImage(this.mooseOverlay, (int) effectiveLeft,
+                        (int) effectiveTop, (int) effectiveWidth, (int) effectiveHeight, null);
+
             }
 
             resp.setContentType("image/png");

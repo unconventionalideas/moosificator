@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.List;
 
 public class MoosificatorServlet extends HttpServlet {
@@ -64,19 +65,14 @@ public class MoosificatorServlet extends HttpServlet {
 
             Graphics g = combined.getGraphics();
             g.drawImage(sourceImage, 0, 0, null);
+            // TODO : Find unique rectangles. That is, detection returns multiple rectangles for the same face and we
+            // should keep only the largest one (right?) and skip all others contained within it.
             for (Rect rectangle : rectangles) {
                 // Add a moose on the original image to overlay that region
                 g.drawImage(this.mooseOverlay, rectangle.getLeft(), rectangle.getTop(),
                         rectangle.getWidth(), rectangle.getHeight(), null);
             }
 
-//            // step #6 - retrieve resulting face detection mask
-//            Image i = detectHaar.getFront();
-//            // finally convert back to RGB finalImage to write out to .jpg file
-//            Gray8Rgb g2rgb = new Gray8Rgb();
-//            g2rgb.push(i);
-//
-//            RgbImage finalImage = (RgbImage) g2rgb.getFront();
             resp.setContentType("image/png");
             ImageIO.write(combined, "PNG", resp.getOutputStream());
         } catch (jjil.core.Error error) {

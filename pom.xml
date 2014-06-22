@@ -53,7 +53,7 @@
         <repository>
             <id>repo.local</id>
             <name>local repo for dependencies not found on maven central</name>
-            <url>file:${basedir}/../repo.local</url>
+            <url>file:${basedir}/repo.local</url>
         </repository>
     </repositories>
 </project>

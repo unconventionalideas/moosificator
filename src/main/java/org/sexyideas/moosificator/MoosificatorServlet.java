@@ -33,9 +33,11 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class MoosificatorServlet extends HttpServlet {
+    public static final float MAGNIFYING_FACTOR = 3.0f;
     private BufferedImage mooseOverlay;
     private LoadingCache<URL, BufferedImage> imageCache;
     private float mooseProportionRatio;
+    private float mooseHeadLeftOffset;
 
     @Override
     public void init() throws ServletException {
@@ -43,6 +45,7 @@ public class MoosificatorServlet extends HttpServlet {
         try {
             this.mooseOverlay = ImageIO.read(MoosificatorServlet.class.getResourceAsStream("/moose/moose.png"));
             this.mooseProportionRatio = (float) this.mooseOverlay.getWidth() / (float) this.mooseOverlay.getHeight();
+            this.mooseHeadLeftOffset = (float) (this.mooseOverlay.getWidth() * 0.4);
 
         } catch (IOException e) {
             throw new ServletException("Failed to load moose image to initialize moosificator", e);
@@ -95,11 +98,14 @@ public class MoosificatorServlet extends HttpServlet {
             g.drawImage(sourceImage, 0, 0, null);
 
             List<Rect> uniqueRectangles = findUniqueRectangles(rectangles);
-
             for (Rect rectangle : uniqueRectangles) {
+
                 // Add a moose on the original image to overlay that region
-                g.drawImage(this.mooseOverlay, rectangle.getLeft(), rectangle.getTop(),
-                        rectangle.getWidth(), (int) (rectangle.getWidth() / this.mooseProportionRatio), null);
+                float effectiveWidth = rectangle.getWidth() * MAGNIFYING_FACTOR;
+                float effectiveHeight = effectiveWidth / this.mooseProportionRatio;
+                g.drawImage(this.mooseOverlay, (int) (rectangle.getLeft() - this.mooseHeadLeftOffset * MAGNIFYING_FACTOR),
+                        (int) (rectangle.getTop() - effectiveHeight / 3.f),
+                        (int) effectiveWidth, (int) effectiveHeight, null);
             }
 
             resp.setContentType("image/png");

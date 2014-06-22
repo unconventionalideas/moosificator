@@ -1,9 +1,9 @@
 package org.sexyideas.moosificator;
 
-import jjil.algorithm.Gray8DetectHaarMultiScale;
 import jjil.algorithm.Gray8Rgb;
 import jjil.algorithm.RgbAvgGray;
 import jjil.core.Image;
+import jjil.core.Rect;
 import jjil.core.RgbImage;
 import jjil.j2se.RgbImageJ2se;
 import org.eclipse.jetty.server.Server;
@@ -11,6 +11,7 @@ import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 
 import javax.imageio.ImageIO;
+import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -22,8 +23,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.net.URL;
+import java.util.List;
 
 public class MoosificatorServlet extends HttpServlet {
+    @Override
+    public void init() throws ServletException {
+        super.init();
+    }
+
     @Override
     public void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws IOException {
@@ -43,7 +50,11 @@ public class MoosificatorServlet extends HttpServlet {
             InputStream profileInputStream = MoosificatorServlet.class.getResourceAsStream("/profiles/HCSB.txt");
             Gray8DetectHaarMultiScale detectHaar = new Gray8DetectHaarMultiScale(profileInputStream, 1, 40);
 
-            detectHaar.push(toGray.getFront());
+            List<Rect> rectangles = detectHaar.pushAndReturn(toGray.getFront());
+            for (Rect rectangle : rectangles) {
+                // Add a moose on the original image to overlay that region
+            }
+
             // step #6 - retrieve resulting face detection mask
             Image i = detectHaar.getFront();
             // finally convert back to RGB finalImage to write out to .jpg file

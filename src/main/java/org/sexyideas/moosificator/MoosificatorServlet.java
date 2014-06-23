@@ -1,5 +1,6 @@
 package org.sexyideas.moosificator;
 
+import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -56,14 +57,9 @@ public class MoosificatorServlet extends HttpServlet {
         }
 
         this.imageCache = CacheBuilder.<URL, BufferedImage>newBuilder()
-                .maximumSize(5)
+                .maximumSize(20)
                 .expireAfterWrite(1, TimeUnit.DAYS)
-                .build(new CacheLoader<URL, BufferedImage>() {
-                    @Override
-                    public BufferedImage load(URL key) throws Exception {
-                        return ImageIO.read(key);
-                    }
-                });
+                .build(new MoosificatorCacheLoader());
     }
 
     @Override
@@ -86,34 +82,7 @@ public class MoosificatorServlet extends HttpServlet {
         }
 
         try {
-            BufferedImage sourceImage = this.imageCache.get(imageUrl);
-            RgbImage rgbImage = RgbImageJ2se.toRgbImage(sourceImage);
-            RgbAvgGray toGray = new RgbAvgGray();
-            toGray.push(rgbImage);
-
-            InputStream profileInputStream = MoosificatorServlet.class.getResourceAsStream("/profiles/HCSB.txt");
-            Gray8DetectHaarMultiScale detectHaar = new Gray8DetectHaarMultiScale(profileInputStream, 1, 30);
-
-            BufferedImage combined = new BufferedImage(sourceImage.getWidth(), sourceImage.getHeight(),
-                    BufferedImage.TYPE_INT_ARGB);
-            List<Rect> rectangles = detectHaar.pushAndReturn(toGray.getFront());
-
-            Graphics g = combined.getGraphics();
-            g.drawImage(sourceImage, 0, 0, null);
-
-            List<Rect> uniqueRectangles = findUniqueRectangles(rectangles);
-            for (Rect rectangle : uniqueRectangles) {
-                float effectiveHeight = rectangle.getHeight() * this.magnifyingFactor;
-                float effectiveWidth = effectiveHeight * this.mooseProportionRatio;
-
-                float effectiveTop = rectangle.getTop() - MOOSE_HEAD_TOP_OFFSET * effectiveHeight / this.mooseOverlay.getHeight();
-                float effectiveLeft = rectangle.getLeft() - MOOSE_HEAD_LEFT_OFFSET * effectiveWidth / this.mooseOverlay.getWidth();
-
-                // Add a moose on the original image to overlay that region
-                g.drawImage(this.mooseOverlay, (int) effectiveLeft,
-                        (int) effectiveTop, (int) effectiveWidth, (int) effectiveHeight, null);
-
-            }
+            BufferedImage combined = this.imageCache.get(imageUrl);
 
             resp.setContentType("image/png");
             ImageIO.write(combined, "PNG", resp.getOutputStream());
@@ -121,6 +90,45 @@ public class MoosificatorServlet extends HttpServlet {
             resp.setStatus(500);
             error.printStackTrace(new PrintWriter(resp.getWriter()));
         }
+    }
+
+    /**
+     * Transforms a source image to a moosificated version of it.
+     * @param sourceImageURL
+     * @return
+     * @throws jjil.core.Error
+     * @throws IOException
+     */
+    private BufferedImage moosificateImage(URL sourceImageURL) throws jjil.core.Error, IOException {
+        BufferedImage sourceImage = ImageIO.read(sourceImageURL);
+        RgbImage rgbImage = RgbImageJ2se.toRgbImage(sourceImage);
+        RgbAvgGray toGray = new RgbAvgGray();
+        toGray.push(rgbImage);
+
+        InputStream profileInputStream = MoosificatorServlet.class.getResourceAsStream("/profiles/HCSB.txt");
+        Gray8DetectHaarMultiScale detectHaar = new Gray8DetectHaarMultiScale(profileInputStream, 1, 30);
+
+        BufferedImage combined = new BufferedImage(sourceImage.getWidth(), sourceImage.getHeight(),
+                BufferedImage.TYPE_INT_ARGB);
+        List<Rect> rectangles = detectHaar.pushAndReturn(toGray.getFront());
+
+        Graphics g = combined.getGraphics();
+        g.drawImage(sourceImage, 0, 0, null);
+
+        List<Rect> uniqueRectangles = findUniqueRectangles(rectangles);
+        for (Rect rectangle : uniqueRectangles) {
+            float effectiveHeight = rectangle.getHeight() * this.magnifyingFactor;
+            float effectiveWidth = effectiveHeight * this.mooseProportionRatio;
+
+            float effectiveTop = rectangle.getTop() - MOOSE_HEAD_TOP_OFFSET * effectiveHeight / this.mooseOverlay.getHeight();
+            float effectiveLeft = rectangle.getLeft() - MOOSE_HEAD_LEFT_OFFSET * effectiveWidth / this.mooseOverlay.getWidth();
+
+            // Add a moose on the original image to overlay that region
+            g.drawImage(this.mooseOverlay, (int) effectiveLeft,
+                    (int) effectiveTop, (int) effectiveWidth, (int) effectiveHeight, null);
+
+        }
+        return combined;
     }
 
     // TODO : Find unique rectangles. That is, detection returns multiple rectangles for the same face and we
@@ -153,6 +161,17 @@ public class MoosificatorServlet extends HttpServlet {
         @Override
         public int compare(Rect o1, Rect o2) {
             return o1.getArea() - o2.getArea();
+        }
+    }
+
+    public class MoosificatorCacheLoader extends CacheLoader<URL, BufferedImage> {
+        @Override
+        public BufferedImage load(URL key) throws Exception {
+            try {
+                return moosificateImage(key);
+            } catch (jjil.core.Error error) {
+                throw Throwables.propagate(error);
+            }
         }
     }
 

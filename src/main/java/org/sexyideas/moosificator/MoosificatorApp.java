@@ -1,6 +1,7 @@
 package org.sexyideas.moosificator;
 
 import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.glassfish.jersey.filter.LoggingFilter;
@@ -21,26 +22,19 @@ public class MoosificatorApp extends ResourceConfig {
     }
 
     public static void main(String[] args) throws Exception {
-//        FilterHolder filterHolder = new FilterHolder(ServletContainer.class);
-//        filterHolder.setInitParameter("javax.ws.rs.Application", "org.sexyideas.moosificator.MoosificatorApp");
-//        filterHolder.setInitParameter("jersey.config.servlet.filter.forwardOn404", "true");
-//        //filterHolder.setInitParameter("jersey.config.servlet.filter.staticContentRegex", "/resources/*.html");
-//
-//        Server server = new Server(Integer.valueOf(System.getenv("PORT")));
-//        ServletContextHandler context = new ServletContextHandler(server, "/", ServletContextHandler.SESSIONS);
-//        context.addFilter(filterHolder, "/*", 1);
-//        server.start();
-//        server.join();
-
         Server server = new Server(Integer.valueOf(System.getenv("PORT")));
-        ServletContextHandler context = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
+        ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
         context.setContextPath("/");
         server.setHandler(context);
 
-        ServletHolder jerseyServlet = context.addServlet(org.glassfish.jersey.servlet.ServletContainer.class, "/*");
+        ServletHolder jerseyServlet = context.addServlet(org.glassfish.jersey.servlet.ServletContainer.class, "/api/*");
         jerseyServlet.setInitOrder(1);
         jerseyServlet.setInitParameter("javax.ws.rs.Application", "org.sexyideas.moosificator.MoosificatorApp");
         jerseyServlet.setInitParameter("com.sun.jersey.config.property.packages", "jetty");
+
+        ServletHolder staticServlet = context.addServlet(DefaultServlet.class, "/*");
+        staticServlet.setInitParameter("resourceBase", "src/main/webapp");
+        staticServlet.setInitParameter("pathInfoOnly", "true");
 
         try {
             server.start();

@@ -15,10 +15,11 @@
             <h1>Moosificator</h1>
             <p class="lead">Moosificate your face (or someone else's).</p>
             <br>
-            <form class="col-lg-12">
+
+            <form class="col-lg-12" action="/api/moose" method="get">
               <div class="input-group input-group-lg col-sm-offset-4 col-sm-4">
-                <input type="text" class="center-block form-control input-xxlarge" title="url" placeholder="Url of image (human face required).">
-                <span class="input-group-btn"><button class="btn btn-lg btn-primary" type="button">OK</button></span>
+                <input type="text" class="center-block form-control input-xxlarge" title="url" name="image" placeholder="Url of image (human face required).">
+                <span class="input-group-btn"><button class="btn btn-lg btn-primary" name="submit" type="submit">OK</button></span>
               </div>
             </form>
           </div>
@@ -69,8 +70,8 @@
           </div>
           <div class="panel panel-default">
             <div class="panel-heading"><h3>API?</h3></div>
-            <div class="panel-body">Yes, my lady:
-              <br/><pre>http://moosificator.herokuapp.com/moose/&lt;your-url&gt;</pre>.
+            <div class="panel-body">Yes, ladies:
+              <br/><pre>http://moosificator.herokuapp.com/api/moose?image=your-url</pre>.
             </div>
           </div>
         </div>

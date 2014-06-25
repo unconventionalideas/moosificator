@@ -42,8 +42,10 @@ public class MooseResource {
     public static final float MOOSE_HEAD_WIDTH = 115.f;
     public static final float MOOSE_HEAD_HEIGHT = 115.f;
     private BufferedImage mooseOverlay;
+    private BufferedImage noFaceFoundExceptionOverlay;
     private LoadingCache<URL, BufferedImage> imageCache;
     private float mooseProportionRatio;
+    private float noFaceOverlayRatio;
     private float magnifyingFactor;
 
     public void initializeIfRequired() {
@@ -52,7 +54,9 @@ public class MooseResource {
         if (this.mooseOverlay == null) {
             try {
                 this.mooseOverlay = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/moose.png"));
+                this.noFaceFoundExceptionOverlay = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/NoFaceFoundException.png"));
                 this.mooseProportionRatio = (float) this.mooseOverlay.getWidth() / (float) this.mooseOverlay.getHeight();
+                this.noFaceOverlayRatio = (float) this.noFaceFoundExceptionOverlay.getWidth() / (float) this.noFaceFoundExceptionOverlay.getHeight();
                 this.magnifyingFactor = this.mooseOverlay.getHeight() / MOOSE_HEAD_HEIGHT;
 
             } catch (IOException e) {
@@ -130,23 +134,40 @@ public class MooseResource {
         BufferedImage combined = new BufferedImage(sourceImage.getWidth(), sourceImage.getHeight(),
                 BufferedImage.TYPE_INT_ARGB);
         List<Rect> rectangles = detectHaar.pushAndReturn(toGray.getFront());
-
         Graphics g = combined.getGraphics();
         g.drawImage(sourceImage, 0, 0, null);
 
-        List<Rect> uniqueRectangles = findUniqueRectangles(rectangles);
-        for (Rect rectangle : uniqueRectangles) {
-            float effectiveHeight = rectangle.getHeight() * this.magnifyingFactor;
-            float effectiveWidth = effectiveHeight * this.mooseProportionRatio;
+        // Overlay a nice NoFaceFound on the image and return that
+        if (rectangles.isEmpty()) {
+            int overlayWidth;
+            int overlayHeight;
+            // Set the size of our overlay according to the largest side of the source image
+            if (sourceImage.getWidth() > sourceImage.getHeight()) {
+                overlayWidth = (int) (sourceImage.getWidth() * 0.5);
+                overlayHeight = (int) (overlayWidth / this.noFaceOverlayRatio);
+            } else {
+                overlayHeight = (int) (sourceImage.getWidth() * 0.5);
+                overlayWidth = (int) (overlayHeight * this.noFaceOverlayRatio);
+            }
 
-            float effectiveTop = rectangle.getTop() - MOOSE_HEAD_TOP_OFFSET * effectiveHeight / this.mooseOverlay.getHeight();
-            float effectiveLeft = rectangle.getLeft() - MOOSE_HEAD_LEFT_OFFSET * effectiveWidth / this.mooseOverlay.getWidth();
+            g.drawImage(this.noFaceFoundExceptionOverlay, (int) ((sourceImage.getWidth() - overlayWidth) / 2.f),
+                    (int) ((sourceImage.getHeight() - overlayHeight) / 2.), overlayWidth, overlayHeight, null);
+        } else {
+            List<Rect> uniqueRectangles = findUniqueRectangles(rectangles);
+            for (Rect rectangle : uniqueRectangles) {
+                float effectiveHeight = rectangle.getHeight() * this.magnifyingFactor;
+                float effectiveWidth = effectiveHeight * this.mooseProportionRatio;
 
-            // Add a moose on the original image to overlay that region
-            g.drawImage(this.mooseOverlay, (int) effectiveLeft,
-                    (int) effectiveTop, (int) effectiveWidth, (int) effectiveHeight, null);
+                float effectiveTop = rectangle.getTop() - MOOSE_HEAD_TOP_OFFSET * effectiveHeight / this.mooseOverlay.getHeight();
+                float effectiveLeft = rectangle.getLeft() - MOOSE_HEAD_LEFT_OFFSET * effectiveWidth / this.mooseOverlay.getWidth();
 
+                // Add a moose on the original image to overlay that region
+                g.drawImage(this.mooseOverlay, (int) effectiveLeft,
+                        (int) effectiveTop, (int) effectiveWidth, (int) effectiveHeight, null);
+
+            }
         }
+
         return combined;
     }
 

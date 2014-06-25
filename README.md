@@ -3,10 +3,11 @@ moosificator
 
 It moosificates faces.
 
-Parameters
-----------
+API
+---
 
-`image`: URL of the source image to moosificate.
+
+`/api/moose?image=<url>`: where URL is an image with a human face.
 
 Reviews
 -------

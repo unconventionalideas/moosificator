@@ -15,7 +15,7 @@ import javax.ws.rs.ApplicationPath;
 @ApplicationPath("/")
 public class MoosificatorApp extends ResourceConfig {
     public MoosificatorApp() {
-        registerClasses(MooseResource.class);
+        register(MooseResource.class);
         KeenClient.initialize();
     }
 

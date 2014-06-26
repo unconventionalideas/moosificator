@@ -1,5 +1,6 @@
 package org.sexyideas.moosificator;
 
+import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -42,15 +43,18 @@ import static java.lang.String.format;
 public class MooseResource {
     private static final Logger LOGGER = Logger.getLogger(MooseResource.class.getName());
 
-    public static final float MOOSE_HEAD_LEFT_OFFSET = 138.f;
-    public static final float MOOSE_HEAD_TOP_OFFSET = 120.f;
-    public static final float MOOSE_HEAD_WIDTH = 115.f;
-    public static final float MOOSE_HEAD_HEIGHT = 115.f;
-    public static final String MOOSE_RETRIEVAL_EVENT = "moose_retrieval";
-    public static final String NEW_MOOSE_EVENT = "new_moose";
+    private static final float MOOSE_HEAD_LEFT_OFFSET = 138.f;
+    private static final float MOOSE_HEAD_TOP_OFFSET = 120.f;
+    private static final float MOOSE_HEAD_WIDTH = 115.f;
+    private static final float MOOSE_HEAD_HEIGHT = 115.f;
+
+    private static final String MOOSE_RETRIEVAL_EVENT = "moose_retrieval";
+    private static final String NEW_MOOSE_EVENT = "new_moose";
+    private static final String ERROR_MOOSIFICATING_EVENT = "error_moosificating";
+
     private BufferedImage mooseOverlay;
     private BufferedImage noFaceFoundExceptionOverlay;
-    private LoadingCache<URL, BufferedImage> imageCache;
+    private LoadingCache<URL, Optional<BufferedImage>> imageCache;
     private float mooseProportionRatio;
     private float noFaceOverlayRatio;
     private float magnifyingFactor;
@@ -70,7 +74,7 @@ public class MooseResource {
                 throw Throwables.propagate(e);
             }
 
-            this.imageCache = CacheBuilder.<URL, BufferedImage>newBuilder()
+            this.imageCache = CacheBuilder.<URL, Optional<BufferedImage>>newBuilder()
                     .maximumSize(20)
                     .expireAfterWrite(1, TimeUnit.DAYS)
                     .build(new MoosificatorCacheLoader());
@@ -93,17 +97,21 @@ public class MooseResource {
         }
 
         try {
-            final BufferedImage combined = this.imageCache.get(imageUrl);
+            final Optional<BufferedImage> moosificationResult = this.imageCache.get(imageUrl);
 
-            StreamingOutput stream = new StreamingOutput() {
-                @Override
-                public void write(OutputStream os) throws IOException,
-                        WebApplicationException {
-                    ImageIO.write(combined, "PNG", os);
-                }
-            };
+            if (!moosificationResult.isPresent()) {
+                return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("Failed to generate image").build();
+            } else {
+                StreamingOutput stream = new StreamingOutput() {
+                    @Override
+                    public void write(OutputStream os) throws IOException,
+                            WebApplicationException {
+                        ImageIO.write(moosificationResult.get(), "PNG", os);
+                    }
+                };
 
-            return Response.ok(stream).build();
+                return Response.ok(stream).build();
+            }
         } catch (Throwable error) {
             throw Throwables.propagate(error);
         }
@@ -131,14 +139,35 @@ public class MooseResource {
         }
     }
 
+    private void logEventForErrorMoosificating(URL sourceImage, Throwable exception) {
+        try {
+            String errorMessage;
+            if (exception.getMessage() != null) {
+                errorMessage = exception.getClass().getName();
+            } else {
+                errorMessage = exception.getMessage();
+            }
 
-    public class MoosificatorCacheLoader extends CacheLoader<URL, BufferedImage> {
+            Map<String, Object> event = new HashMap<String, Object>();
+            event.put("sourceImage", sourceImage);
+            event.put("error", errorMessage);
+            KeenClient.client().addEvent(ERROR_MOOSIFICATING_EVENT, event);
+        } catch (KeenException e) {
+            LOGGER.log(Level.WARNING,
+                    format("Error storing event for retrieval of event for source image [%s]", sourceImage), e);
+        }
+    }
+
+
+    public class MoosificatorCacheLoader extends CacheLoader<URL, Optional<BufferedImage>> {
         @Override
-        public BufferedImage load(URL key) throws Exception {
+        public Optional<BufferedImage> load(URL key) throws Exception {
             try {
-                return moosificateImage(key);
-            } catch (jjil.core.Error error) {
-                throw Throwables.propagate(error);
+                return Optional.of(moosificateImage(key));
+            } catch (Throwable e) {
+                logEventForErrorMoosificating(key, e);
+                LOGGER.log(Level.WARNING, format("Error generating image for url [%s]", key.toExternalForm()), e);
+                return Optional.absent();
             }
         }
     }

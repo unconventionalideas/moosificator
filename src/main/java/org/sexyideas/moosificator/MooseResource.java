@@ -43,6 +43,7 @@ import static java.lang.String.format;
 public class MooseResource {
     private static final Logger LOGGER = Logger.getLogger(MooseResource.class.getName());
 
+    private static final int MAX_IMAGE_SIZE_IN_PIXELS = 2073600;
     private static final float MOOSE_HEAD_LEFT_OFFSET = 138.f;
     private static final float MOOSE_HEAD_TOP_OFFSET = 120.f;
     private static final float MOOSE_HEAD_WIDTH = 115.f;
@@ -192,27 +193,38 @@ public class MooseResource {
         InputStream profileInputStream = MoosificatorApp.class.getResourceAsStream("/profiles/HCSB.txt");
         Gray8DetectHaarMultiScale detectHaar = new Gray8DetectHaarMultiScale(profileInputStream, 1, 30);
 
-        BufferedImage combined = new BufferedImage(sourceImage.getWidth(), sourceImage.getHeight(),
+        // We either keep the source size if small enough or we cap it to be fewer pixels than our max
+        int canvasWidth = sourceImage.getWidth();
+        int canvasHeight = sourceImage.getHeight();
+        double originalSurface = sourceImage.getWidth() * sourceImage.getHeight();
+        if (originalSurface > MAX_IMAGE_SIZE_IN_PIXELS) {
+            double resizeFactor = Math.sqrt(MAX_IMAGE_SIZE_IN_PIXELS / originalSurface);
+            canvasWidth = (int) (sourceImage.getWidth() * resizeFactor);
+            canvasHeight = (int) (sourceImage.getHeight() * resizeFactor);
+        }
+
+        BufferedImage combined = new BufferedImage(canvasWidth, canvasHeight,
                 BufferedImage.TYPE_INT_ARGB);
         List<Rect> rectangles = detectHaar.pushAndReturn(toGray.getFront());
         Graphics g = combined.getGraphics();
-        g.drawImage(sourceImage, 0, 0, null);
+
+        g.drawImage(sourceImage, 0, 0, canvasWidth, canvasHeight, null);
 
         // Overlay a nice NoFaceFound on the image and return that
         if (rectangles.isEmpty()) {
             int overlayWidth;
             int overlayHeight;
             // Set the size of our overlay according to the largest side of the source image
-            if (sourceImage.getWidth() > sourceImage.getHeight()) {
-                overlayWidth = (int) (sourceImage.getWidth() * 0.5);
+            if (canvasWidth > canvasHeight) {
+                overlayWidth = (int) (canvasWidth * 0.5);
                 overlayHeight = (int) (overlayWidth / this.noFaceOverlayRatio);
             } else {
-                overlayHeight = (int) (sourceImage.getWidth() * 0.5);
+                overlayHeight = (int) (canvasWidth * 0.5);
                 overlayWidth = (int) (overlayHeight * this.noFaceOverlayRatio);
             }
 
-            g.drawImage(this.noFaceFoundExceptionOverlay, (int) ((sourceImage.getWidth() - overlayWidth) / 2.f),
-                    (int) ((sourceImage.getHeight() - overlayHeight) / 2.), overlayWidth, overlayHeight, null);
+            g.drawImage(this.noFaceFoundExceptionOverlay, (int) ((canvasWidth - overlayWidth) / 2.f),
+                    (int) ((canvasHeight - overlayHeight) / 2.), overlayWidth, overlayHeight, null);
         } else {
             List<Rect> uniqueRectangles = findUniqueRectangles(rectangles);
             for (Rect rectangle : uniqueRectangles) {

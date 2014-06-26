@@ -13,3 +13,11 @@ Reviews
 -------
 
 **"This moosificator service will change the world"** --*Alex Ku* 
+
+Local mode
+----------
+
+`heroku config -s | grep KEEN >> .env`
+`echo PORT=5000 >> .env`
+
+`foreman start`

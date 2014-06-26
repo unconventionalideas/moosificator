@@ -1,5 +1,6 @@
 package org.sexyideas.moosificator;
 
+import io.keen.client.java.KeenClient;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -15,10 +16,7 @@ import javax.ws.rs.ApplicationPath;
 public class MoosificatorApp extends ResourceConfig {
     public MoosificatorApp() {
         registerClasses(MooseResource.class);
-        register(LoggingFilter.class);
-        property(ServerProperties.TRACING, TracingConfig.ALL.name());
-
-        System.out.printf("Loaded app with resources: %s\n", getClasses());
+        KeenClient.initialize();
     }
 
     public static void main(String[] args) throws Exception {

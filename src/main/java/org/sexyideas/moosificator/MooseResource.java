@@ -5,6 +5,8 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Ordering;
+import io.keen.client.java.KeenClient;
+import io.keen.client.java.exceptions.KeenException;
 import jjil.algorithm.RgbAvgGray;
 import jjil.core.Rect;
 import jjil.core.RgbImage;
@@ -22,10 +24,11 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.*;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import static java.lang.String.format;
 
@@ -37,10 +40,14 @@ import static java.lang.String.format;
 @Path("moose")
 @Singleton
 public class MooseResource {
+    private static final Logger LOGGER = Logger.getLogger(MooseResource.class.getName());
+
     public static final float MOOSE_HEAD_LEFT_OFFSET = 138.f;
     public static final float MOOSE_HEAD_TOP_OFFSET = 120.f;
     public static final float MOOSE_HEAD_WIDTH = 115.f;
     public static final float MOOSE_HEAD_HEIGHT = 115.f;
+    public static final String MOOSE_RETRIEVAL_EVENT = "moose_retrieval";
+    public static final String NEW_MOOSE_EVENT = "new_moose";
     private BufferedImage mooseOverlay;
     private BufferedImage noFaceFoundExceptionOverlay;
     private LoadingCache<URL, BufferedImage> imageCache;
@@ -78,6 +85,7 @@ public class MooseResource {
         URL imageUrl;
         try {
             imageUrl = new URL(sourceImage);
+            logEventForMooseRetrieval(imageUrl);
         } catch (MalformedURLException e) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(format("%s is not a valid url", sourceImage))
@@ -98,6 +106,28 @@ public class MooseResource {
             return Response.ok(stream).build();
         } catch (Throwable error) {
             throw Throwables.propagate(error);
+        }
+    }
+
+    private void logEventForMooseRetrieval(URL sourceImage) {
+        try {
+            Map<String, Object> event = new HashMap<String, Object>();
+            event.put("sourceImage", sourceImage);
+            KeenClient.client().addEvent(MOOSE_RETRIEVAL_EVENT, event);
+        } catch (KeenException e) {
+            LOGGER.log(Level.WARNING,
+                    format("Error storing event for retrieval of event for source image [%s]", sourceImage), e);
+        }
+    }
+
+    private void logEventForNewMooseSource(URL sourceImage) {
+        try {
+            Map<String, Object> event = new HashMap<String, Object>();
+            event.put("sourceImage", sourceImage);
+            KeenClient.client().addEvent(NEW_MOOSE_EVENT, event);
+        } catch (KeenException e) {
+            LOGGER.log(Level.WARNING,
+                    format("Error storing event for retrieval of event for source image [%s]", sourceImage), e);
         }
     }
 
@@ -123,6 +153,8 @@ public class MooseResource {
      * @throws IOException
      */
     private BufferedImage moosificateImage(URL sourceImageURL) throws jjil.core.Error, IOException {
+        logEventForNewMooseSource(sourceImageURL);
+
         BufferedImage sourceImage = ImageIO.read(sourceImageURL);
         RgbImage rgbImage = RgbImageJ2se.toRgbImage(sourceImage);
         RgbAvgGray toGray = new RgbAvgGray();

@@ -144,7 +144,7 @@ public class MooseResource {
     private void logEventForErrorMoosificating(URL sourceImage, Throwable exception) {
         try {
             String errorMessage;
-            if (exception.getMessage() != null) {
+            if (exception.getMessage() == null) {
                 errorMessage = exception.getClass().getName();
             } else {
                 errorMessage = exception.getMessage();

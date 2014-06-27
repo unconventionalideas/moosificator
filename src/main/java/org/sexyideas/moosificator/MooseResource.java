@@ -55,6 +55,8 @@ public class MooseResource {
 
     private BufferedImage mooseOverlay;
     private BufferedImage noFaceFoundExceptionOverlay;
+    private BufferedImage badUrlExceptionImage;
+    private BufferedImage serverErrorMoose;
     private LoadingCache<URL, Optional<BufferedImage>> imageCache;
     private float mooseProportionRatio;
     private float noFaceOverlayRatio;
@@ -67,6 +69,8 @@ public class MooseResource {
             try {
                 this.mooseOverlay = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/moose.png"));
                 this.noFaceFoundExceptionOverlay = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/NoFaceFoundException.png"));
+                this.badUrlExceptionImage = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/BadUrlException.png"));
+                this.serverErrorMoose = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/ServerErrorMoose.png"));
                 this.mooseProportionRatio = (float) this.mooseOverlay.getWidth() / (float) this.mooseOverlay.getHeight();
                 this.noFaceOverlayRatio = (float) this.noFaceFoundExceptionOverlay.getWidth() / (float) this.noFaceFoundExceptionOverlay.getHeight();
                 this.magnifyingFactor = this.mooseOverlay.getHeight() / MOOSE_HEAD_HEIGHT;
@@ -75,7 +79,7 @@ public class MooseResource {
                 throw Throwables.propagate(e);
             }
 
-            this.imageCache = CacheBuilder.<URL, Optional<BufferedImage>>newBuilder()
+            this.imageCache = CacheBuilder.newBuilder()
                     .maximumSize(20)
                     .expireAfterWrite(1, TimeUnit.DAYS)
                     .build(new MoosificatorCacheLoader());
@@ -86,22 +90,19 @@ public class MooseResource {
     @Produces("image/png")
     public Response moosificate(@QueryParam("image") String sourceImage) {
         initializeIfRequired();
-
         URL imageUrl;
         try {
             imageUrl = new URL(sourceImage);
             logEventForMooseRetrieval(imageUrl);
         } catch (MalformedURLException e) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(format("%s is not a valid url", sourceImage))
-                    .build();
+            return Response.ok(this.badUrlExceptionImage).build();
         }
 
         try {
             final Optional<BufferedImage> moosificationResult = this.imageCache.get(imageUrl);
 
             if (!moosificationResult.isPresent()) {
-                return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("Failed to generate image").build();
+                return Response.ok(this.serverErrorMoose).build();
             } else {
                 StreamingOutput stream = new StreamingOutput() {
                     @Override

@@ -75,7 +75,7 @@ public class MooseResource {
                 throw Throwables.propagate(e);
             }
 
-            this.imageCache = CacheBuilder.<URL, Optional<BufferedImage>>newBuilder()
+            this.imageCache = CacheBuilder.newBuilder()
                     .maximumSize(20)
                     .expireAfterWrite(1, TimeUnit.DAYS)
                     .build(new MoosificatorCacheLoader());

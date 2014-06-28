@@ -18,6 +18,7 @@ Local mode
 ----------
 
 `heroku config -s | grep KEEN >> .env`
+
 `echo PORT=5000 >> .env`
 
 `foreman start`

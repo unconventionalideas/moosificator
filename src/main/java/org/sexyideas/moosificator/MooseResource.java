@@ -57,7 +57,7 @@ public class MooseResource {
     private BufferedImage noFaceFoundExceptionOverlay;
     private BufferedImage badUrlExceptionImage;
     private BufferedImage serverErrorMoose;
-    private LoadingCache<URL, Optional<BufferedImage>> imageCache;
+    private LoadingCache<MooseRequest, Optional<BufferedImage>> imageCache;
     private float mooseProportionRatio;
     private float noFaceOverlayRatio;
     private float magnifyingFactor;
@@ -79,7 +79,7 @@ public class MooseResource {
                 throw Throwables.propagate(e);
             }
 
-            this.imageCache = CacheBuilder.<URL, Optional<BufferedImage>>newBuilder()
+            this.imageCache = CacheBuilder.<MooseRequest, Optional<BufferedImage>>newBuilder()
                     .maximumSize(20)
                     .expireAfterWrite(1, TimeUnit.DAYS)
                     .build(new MoosificatorCacheLoader());
@@ -88,7 +88,7 @@ public class MooseResource {
 
     @GET
     @Produces("image/png")
-    public Response moosificate(@QueryParam("image") String sourceImage) {
+    public Response moosificate(@QueryParam("image") String sourceImage, @QueryParam("debug") String debug) {
         initializeIfRequired();
         URL imageUrl;
         try {
@@ -99,7 +99,11 @@ public class MooseResource {
         }
 
         try {
-            final Optional<BufferedImage> moosificationResult = this.imageCache.get(imageUrl);
+            MooseRequest mooseRequest = MooseRequest.newBuilder()
+                    .withOriginalImageUrl(imageUrl)
+                    .withDebug(debug)
+                    .build();
+            final Optional<BufferedImage> moosificationResult = this.imageCache.get(mooseRequest);
 
             if (!moosificationResult.isPresent()) {
                 return Response.ok(this.serverErrorMoose).build();
@@ -141,7 +145,7 @@ public class MooseResource {
         }
     }
 
-    private void logEventForErrorMoosificating(URL sourceImage, Throwable exception) {
+    private void logEventForErrorMoosificating(MooseRequest mooseRequest, Throwable exception) {
         try {
             String errorMessage;
             if (exception.getMessage() == null) {
@@ -151,24 +155,26 @@ public class MooseResource {
             }
 
             Map<String, Object> event = new HashMap<String, Object>();
-            event.put("sourceImage", sourceImage);
+            event.put("sourceImage", mooseRequest.getOriginalImageUrl());
             event.put("error", errorMessage);
             KeenClient.client().addEvent(ERROR_MOOSIFICATING_EVENT, event);
         } catch (KeenException e) {
             LOGGER.log(Level.WARNING,
-                    format("Error storing event for retrieval of event for source image [%s]", sourceImage), e);
+                    format("Error storing event for retrieval of event for source image [%s]",
+                            mooseRequest.getOriginalImageUrl()), e);
         }
     }
 
 
-    public class MoosificatorCacheLoader extends CacheLoader<URL, Optional<BufferedImage>> {
+    public class MoosificatorCacheLoader extends CacheLoader<MooseRequest, Optional<BufferedImage>> {
         @Override
-        public Optional<BufferedImage> load(URL key) throws Exception {
+        public Optional<BufferedImage> load(MooseRequest mooseRequest) throws Exception {
             try {
-                return Optional.of(moosificateImage(key));
+                return Optional.of(moosificateImage(mooseRequest));
             } catch (Throwable e) {
-                logEventForErrorMoosificating(key, e);
-                LOGGER.log(Level.WARNING, format("Error generating image for url [%s]", key.toExternalForm()), e);
+                logEventForErrorMoosificating(mooseRequest, e);
+                LOGGER.log(Level.WARNING, format("Error generating image for url [%s]", mooseRequest.getOriginalImageUrl()
+                        .toExternalForm()), e);
                 return Optional.absent();
             }
         }
@@ -178,15 +184,15 @@ public class MooseResource {
     /**
      * Transforms a source image to a moosificated version of it.
      *
-     * @param sourceImageURL URL of the image to moosificate
+     * @param mooseRequest mooseRequest containing URL of the image to moosificate
      * @return the moosificated image
      * @throws jjil.core.Error
      * @throws IOException
      */
-    private BufferedImage moosificateImage(URL sourceImageURL) throws jjil.core.Error, IOException {
-        logEventForNewMooseSource(sourceImageURL);
+    private BufferedImage moosificateImage(MooseRequest mooseRequest) throws jjil.core.Error, IOException {
+        logEventForNewMooseSource(mooseRequest.getOriginalImageUrl());
 
-        BufferedImage sourceImage = ImageIO.read(sourceImageURL);
+        BufferedImage sourceImage = ImageIO.read(mooseRequest.getOriginalImageUrl());
         RgbImage rgbImage = RgbImageJ2se.toRgbImage(sourceImage);
         RgbAvgGray toGray = new RgbAvgGray();
         toGray.push(rgbImage);
@@ -229,16 +235,20 @@ public class MooseResource {
         } else {
             List<Rect> uniqueRectangles = findUniqueRectangles(rectangles);
             for (Rect rectangle : uniqueRectangles) {
-                float effectiveHeight = rectangle.getHeight() * this.magnifyingFactor;
-                float effectiveWidth = effectiveHeight * this.mooseProportionRatio;
 
-                float effectiveTop = rectangle.getTop() - MOOSE_HEAD_TOP_OFFSET * effectiveHeight / this.mooseOverlay.getHeight();
-                float effectiveLeft = rectangle.getLeft() - MOOSE_HEAD_LEFT_OFFSET * effectiveWidth / this.mooseOverlay.getWidth();
+                if (mooseRequest.isDebug()) {
+                    // Add debug rectangle around the face
+                    g.drawRect(rectangle.getLeft(), rectangle.getTop(), rectangle.getWidth(), rectangle.getHeight());
+                } else {
+                    float effectiveHeight = rectangle.getHeight() * this.magnifyingFactor;
+                    float effectiveWidth = effectiveHeight * this.mooseProportionRatio;
 
-                // Add a moose on the original image to overlay that region
-                g.drawImage(this.mooseOverlay, (int) effectiveLeft,
-                        (int) effectiveTop, (int) effectiveWidth, (int) effectiveHeight, null);
-
+                    float effectiveTop = rectangle.getTop() - MOOSE_HEAD_TOP_OFFSET * effectiveHeight / this.mooseOverlay.getHeight();
+                    float effectiveLeft = rectangle.getLeft() - MOOSE_HEAD_LEFT_OFFSET * effectiveWidth / this.mooseOverlay.getWidth();
+                    // Add a moose on the original image to overlay that region
+                    g.drawImage(this.mooseOverlay, (int) effectiveLeft,
+                            (int) effectiveTop, (int) effectiveWidth, (int) effectiveHeight, null);
+                }
             }
         }
 

@@ -259,24 +259,54 @@ public class MooseResource {
                 if (mooseRequest.isDebug()) {
                     // Add debug rectangle around the face
                     g.drawRect(rectangle.getLeft(), rectangle.getTop(), rectangle.getWidth(), rectangle.getHeight());
-                } else {
-                    if (mooseRequest.hasNamedOverlayImage()) {
-                        // Add a named moose on the original image to overlay that region
-                        this.namedMooseOverlays.get(mooseRequest.getOverlayImageName()).drawImage(g, rectangle);
-                    } else {
-                        if (mooseRequest.hasOverlayImageFromUrl()) {
-                            // TODO: Add overlay image from URL
-                        }
-                    }
+                }
 
-                    if (mooseRequest.hasAntlers()) {
-                        // TODO: Add antlers to the face
+                if (mooseRequest.hasNamedOverlayImage()) {
+                    // Add a named moose on the original image to overlay that region
+                    this.namedMooseOverlays.get(mooseRequest.getOverlayImageName()).drawImage(g, rectangle);
+                } else {
+                    if (mooseRequest.hasOverlayImageFromUrl()) {
+                        // Add overlay image from URL
+                        addOverlayImage(g, rectangle);
                     }
+                }
+
+                if (mooseRequest.hasAntlers()) {
+                    // Add antlers to the face
+                    addAntlers(g, rectangle);
                 }
             }
         }
 
         return combined;
+    }
+
+    private void addOverlayImage(Graphics g, Rect rectangle) {
+        // TODO: Implement
+    }
+
+    private void addAntlers(Graphics g, Rect rectangle) {
+        float magnifyingFactor = rectangle.getHeight() / (float) this.rightAntler.getHeight() * 0.5f;
+        float widthOffset =  0.25f * rectangle.getWidth();
+        float heightOffset = 0.25f * rectangle.getHeight();
+        int leftAntlerWidth = (int) (this.leftAntler.getWidth() * magnifyingFactor);
+        int leftAntlerHeight = (int) (this.leftAntler.getHeight() * magnifyingFactor);
+        int rightAntlerWidth = (int) (this.rightAntler.getWidth() * magnifyingFactor);
+        int rightAntlerHeight = (int) (this.rightAntler.getHeight() * magnifyingFactor);
+
+        g.drawImage(this.leftAntler,
+                rectangle.getLeft() + (int) widthOffset - leftAntlerWidth,
+                rectangle.getTop() + (int) heightOffset - leftAntlerHeight,
+                leftAntlerWidth,
+                leftAntlerHeight,
+                null);
+
+        g.drawImage(this.rightAntler,
+                rectangle.getRight() - (int) widthOffset,
+                rectangle.getTop() + (int) heightOffset - rightAntlerHeight,
+                rightAntlerWidth,
+                rightAntlerHeight,
+                null);
     }
 
     private List<Rect> findDistinctFaces(List<Rect> rectangles) {

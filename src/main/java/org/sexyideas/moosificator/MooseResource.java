@@ -402,7 +402,7 @@ public class MooseResource {
         uniqueRectangles.add(ordering.max(rectangles));
 
         for (Rect rectangle : rectangles) {
-            if (outsideAlreadyIncluded(uniqueRectangles, rectangle)) {
+            if (!outsideAlreadyIncluded(uniqueRectangles, rectangle)) {
                 uniqueRectangles.add(rectangle);
             }
         }
@@ -411,16 +411,16 @@ public class MooseResource {
     }
 
     /**
-     * @return true if the given rectangle is outside of all currently selected rectangles.
+     * @return true if the given rectangle completely inside one of the other rectangles.
      */
     private boolean outsideAlreadyIncluded(List<Rect> selectedRegions, Rect tentativeRegion) {
         for (Rect goodToDate : selectedRegions) {
-            if (tentativeRegion.overlaps(goodToDate)) {
-                return false;
+            if (isInside(goodToDate, tentativeRegion)) {
+                return true;
             }
         }
 
-        return true;
+        return false;
     }
 
     public class AreaComparator implements Comparator<Rect> {
@@ -429,5 +429,12 @@ public class MooseResource {
             return o1.getArea() - o2.getArea();
         }
 
+    }
+
+    public boolean isInside(Rect outer, Rect inner) {
+        return outer.getLeft() <= inner.getLeft()
+                && outer.getRight() >= inner.getRight()
+                && outer.getTop() <= inner.getTop()
+                && outer.getBottom() >= inner.getBottom();
     }
 }

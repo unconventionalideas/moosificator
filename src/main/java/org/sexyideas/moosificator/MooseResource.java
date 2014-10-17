@@ -1,5 +1,41 @@
 package org.sexyideas.moosificator;
 
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.awt.image.ColorModel;
+import java.awt.image.WritableRaster;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageOutputStream;
+import javax.inject.Singleton;
+import javax.ws.rs.GET;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.WebApplicationException;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.StreamingOutput;
+
 import com.google.common.base.Optional;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
@@ -14,32 +50,6 @@ import jjil.algorithm.RgbAvgGray;
 import jjil.core.Rect;
 import jjil.core.RgbImage;
 import jjil.j2se.RgbImageJ2se;
-
-import javax.imageio.IIOImage;
-import javax.imageio.ImageIO;
-import javax.imageio.ImageReader;
-import javax.imageio.stream.ImageOutputStream;
-import javax.inject.Singleton;
-import javax.ws.rs.*;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.StreamingOutput;
-import java.awt.*;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.*;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static java.lang.String.format;
 
@@ -303,14 +313,12 @@ public class MooseResource {
             canvasHeight = (int) (frame.getHeight() * resizeFactor);
         }
 
-        BufferedImage combined = new BufferedImage(canvasWidth, canvasHeight,
-                BufferedImage.TYPE_INT_ARGB);
+        BufferedImage combined = deepCopy(frame);
         List<Rect> rectangles = detectHaar.pushAndReturn(toGray.getFront());
         Graphics g = combined.getGraphics();
 
         g.drawImage(frame, 0, 0, canvasWidth, canvasHeight, null);
 
-        // Overlay a nice NoFaceFound on the image and return that
         if (!rectangles.isEmpty()) {
             List<Rect> uniqueRectangles = findDistinctFaces(rectangles);
             for (Rect rectangle : uniqueRectangles) {
@@ -338,6 +346,7 @@ public class MooseResource {
                 }
             }
         } else if (throwsException) {
+            // Overlay a nice NoFaceFound on the image and return that
             int overlayWidth;
             int overlayHeight;
             // Set the size of our overlay according to the largest side of the source image
@@ -438,5 +447,17 @@ public class MooseResource {
                 && outer.getRight() >= inner.getRight()
                 && outer.getTop() <= inner.getTop()
                 && outer.getBottom() >= inner.getBottom();
+    }
+
+    /**
+     * Creates a deep copy of an {@link BufferedImage}
+     * @param bi    the BufferedImage to copy
+     * @return      a deep copy of bi
+     */
+    static BufferedImage deepCopy(BufferedImage bi) {
+        ColorModel cm = bi.getColorModel();
+        boolean isAlphaPremultiplied = cm.isAlphaPremultiplied();
+        WritableRaster raster = bi.copyData(null);
+        return new BufferedImage(cm, raster, isAlphaPremultiplied, null);
     }
 }

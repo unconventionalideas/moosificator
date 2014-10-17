@@ -233,7 +233,7 @@ public class MooseResource {
             g.drawImage(this.noFaceFoundExceptionOverlay, (int) ((canvasWidth - overlayWidth) / 2.f),
                     (int) ((canvasHeight - overlayHeight) / 2.), overlayWidth, overlayHeight, null);
         } else {
-            List<Rect> uniqueRectangles = findUniqueRectangles(rectangles);
+            List<Rect> uniqueRectangles = findDistinctFaces(rectangles);
             for (Rect rectangle : uniqueRectangles) {
 
                 if (mooseRequest.isDebug()) {
@@ -255,14 +255,31 @@ public class MooseResource {
         return combined;
     }
 
-    // TODO : Find unique rectangles. That is, detection returns multiple rectangles for the same face and we
-    // should keep only the largest one (right?) and skip all others contained within it.
-    private List<Rect> findUniqueRectangles(List<Rect> rectangles) {
-        List<Rect> uniqueRectangles = new ArrayList<Rect>();
+    private List<Rect> findDistinctFaces(List<Rect> rectangles) {
+        List<Rect> uniqueRectangles = new ArrayList<>();
         Ordering<Rect> ordering = Ordering.from(new AreaComparator());
-        Rect largest = ordering.max(rectangles);
-        uniqueRectangles.add(largest);
+        uniqueRectangles.add(ordering.max(rectangles));
+
+        for (Rect rectangle : rectangles) {
+            if (outsideAlreadyIncluded(uniqueRectangles, rectangle)) {
+                uniqueRectangles.add(rectangle);
+            }
+        }
+
         return uniqueRectangles;
+    }
+
+    /**
+     * @return true if the given rectangle is outside of all currently selected rectangles.
+     */
+    private boolean outsideAlreadyIncluded(List<Rect> selectedRegions, Rect tentativeRegion) {
+        for (Rect goodToDate : selectedRegions) {
+            if (tentativeRegion.overlaps(goodToDate)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public class AreaComparator implements Comparator<Rect> {

@@ -38,20 +38,16 @@ import static java.lang.String.format;
  *
  * @author alexandre.normand
  */
-@Path("moose")
 @Singleton
+@Produces("image/png")
+@Path("/")
 public class MooseResource {
-    private static final Logger LOGGER = Logger.getLogger(MooseResource.class.getName());
 
     private static final int MAX_IMAGE_SIZE_IN_PIXELS = 2073600;
     private static final float MOOSE_HEAD_LEFT_OFFSET = 138.f;
     private static final float MOOSE_HEAD_TOP_OFFSET = 120.f;
     private static final float MOOSE_HEAD_WIDTH = 115.f;
     private static final float MOOSE_HEAD_HEIGHT = 115.f;
-
-    private static final String MOOSE_RETRIEVAL_EVENT = "moose_retrieval";
-    private static final String NEW_MOOSE_EVENT = "new_moose";
-    private static final String ERROR_MOOSIFICATING_EVENT = "error_moosificating";
 
     private BufferedImage mooseOverlay;
     private BufferedImage noFaceFoundExceptionOverlay;
@@ -87,22 +83,48 @@ public class MooseResource {
     }
 
     @GET
-    @Produces("image/png")
-    public Response moosificate(@QueryParam("image") String sourceImage, @QueryParam("debug") String debug) {
+    @Path("antler")
+    public Response antlerificate(@QueryParam("image") String sourceImage) {
+        return processRequest(MooseRequest.newBuilder()
+                .withRequestType(MooseRequest.RequestType.ANTLER)
+                .withOriginalImageUrl(sourceImage));
+    }
+
+    @GET
+    @Path("moose")
+    public Response moosificate(@QueryParam("image") String sourceImage,
+                                @QueryParam("debug") String debug) {
+        return processRequest(MooseRequest.newBuilder()
+                .withRequestType(MooseRequest.RequestType.MOOSE)
+                .withOriginalImageUrl(sourceImage)
+                .withDebug(debug)
+                );
+    }
+
+    @GET
+    @Path("moose/{name}")
+    public Response moosificateByName(@PathParam("name") String name,
+                                     @QueryParam("image") String sourceImage) {
+        return processRequest(MooseRequest.newBuilder()
+                .withRequestType(MooseRequest.RequestType.NAMED)
+                .withOriginalImageUrl(sourceImage)
+                .withOverlayImageName(name));
+    }
+
+    @GET
+    @Path("remoose")
+    public Response remoosificate(@QueryParam("image") String sourceImage,
+                                  @QueryParam("overlayImage") String overlayImageUrl) {
+        return processRequest(MooseRequest.newBuilder()
+                .withRequestType(MooseRequest.RequestType.MOOSE)
+                .withOriginalImageUrl(sourceImage)
+                .withOverlayImageUrl(overlayImageUrl));
+    }
+    private Response processRequest(MooseRequest.MooseRequestBuilder mooseRequestBuilder) {
         initializeIfRequired();
-        URL imageUrl;
-        try {
-            imageUrl = new URL(sourceImage);
-            logEventForMooseRetrieval(imageUrl);
-        } catch (MalformedURLException e) {
-            return Response.ok(this.badUrlExceptionImage).build();
-        }
 
         try {
-            MooseRequest mooseRequest = MooseRequest.newBuilder()
-                    .withOriginalImageUrl(imageUrl)
-                    .withDebug(debug)
-                    .build();
+            MooseRequest mooseRequest = mooseRequestBuilder.build();
             final Optional<BufferedImage> moosificationResult = this.imageCache.get(mooseRequest);
 
             if (!moosificationResult.isPresent()) {
@@ -118,53 +140,24 @@ public class MooseResource {
 
                 return Response.ok(stream).build();
             }
+        } catch (MooseException e) {
+            switch (e.getMooseExceptionType()) {
+                case INVALID_SOURCE_URL:
+                case INVALID_RE_MOOSE_URL:
+                    return Response.ok(this.badUrlExceptionImage).build();
+                case MISSING_REQUEST_TYPE:
+                case MISSING_SOURCE_URL:
+                case MISSING_MOOSE_NAME:
+                case MISSING_RE_MOOSE_URL:
+                case INVALID_MOOSE_NAME:   // Probably want a cute and unique image for this one
+                default:
+                    e.printStackTrace();
+                    return Response.ok(this.serverErrorMoose).build();
+            }
         } catch (Throwable error) {
             throw Throwables.propagate(error);
         }
     }
-
-    private void logEventForMooseRetrieval(URL sourceImage) {
-        try {
-            Map<String, Object> event = new HashMap<String, Object>();
-            event.put("sourceImage", sourceImage);
-            KeenClient.client().addEvent(MOOSE_RETRIEVAL_EVENT, event);
-        } catch (KeenException e) {
-            LOGGER.log(Level.WARNING,
-                    format("Error storing event for retrieval of event for source image [%s]", sourceImage), e);
-        }
-    }
-
-    private void logEventForNewMooseSource(URL sourceImage) {
-        try {
-            Map<String, Object> event = new HashMap<String, Object>();
-            event.put("sourceImage", sourceImage);
-            KeenClient.client().addEvent(NEW_MOOSE_EVENT, event);
-        } catch (KeenException e) {
-            LOGGER.log(Level.WARNING,
-                    format("Error storing event for retrieval of event for source image [%s]", sourceImage), e);
-        }
-    }
-
-    private void logEventForErrorMoosificating(MooseRequest mooseRequest, Throwable exception) {
-        try {
-            String errorMessage;
-            if (exception.getMessage() == null) {
-                errorMessage = exception.getClass().getName();
-            } else {
-                errorMessage = exception.getMessage();
-            }
-
-            Map<String, Object> event = new HashMap<String, Object>();
-            event.put("sourceImage", mooseRequest.getOriginalImageUrl());
-            event.put("error", errorMessage);
-            KeenClient.client().addEvent(ERROR_MOOSIFICATING_EVENT, event);
-        } catch (KeenException e) {
-            LOGGER.log(Level.WARNING,
-                    format("Error storing event for retrieval of event for source image [%s]",
-                            mooseRequest.getOriginalImageUrl()), e);
-        }
-    }
-
 
     public class MoosificatorCacheLoader extends CacheLoader<MooseRequest, Optional<BufferedImage>> {
         @Override
@@ -172,14 +165,13 @@ public class MooseResource {
             try {
                 return Optional.of(moosificateImage(mooseRequest));
             } catch (Throwable e) {
-                logEventForErrorMoosificating(mooseRequest, e);
-                LOGGER.log(Level.WARNING, format("Error generating image for url [%s]", mooseRequest.getOriginalImageUrl()
-                        .toExternalForm()), e);
+                MooseLogger.logEventForErrorMoosificating(mooseRequest, e);
+                MooseLogger.getLogger().log(Level.WARNING, format("Error generating image for url [%s]",
+                        mooseRequest.getOriginalImageUrl().toExternalForm()), e);
                 return Optional.absent();
             }
         }
     }
-
 
     /**
      * Transforms a source image to a moosificated version of it.
@@ -190,7 +182,7 @@ public class MooseResource {
      * @throws IOException
      */
     private BufferedImage moosificateImage(MooseRequest mooseRequest) throws jjil.core.Error, IOException {
-        logEventForNewMooseSource(mooseRequest.getOriginalImageUrl());
+        MooseLogger.logEventForNewMooseSource(mooseRequest.getOriginalImageUrl());
 
         BufferedImage sourceImage = ImageIO.read(mooseRequest.getOriginalImageUrl());
         RgbImage rgbImage = RgbImageJ2se.toRgbImage(sourceImage);

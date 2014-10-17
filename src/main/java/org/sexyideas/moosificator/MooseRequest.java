@@ -18,6 +18,7 @@ public final class MooseRequest {
 
     private URL originalImageUrl;
     private boolean debug;
+    private boolean debugOnly;
     private URL overlayImageUrl;
     private String overlayImageName;
     private RequestType requestType;
@@ -49,6 +50,10 @@ public final class MooseRequest {
         return debug;
     }
 
+    public boolean isDebugOnly() {
+        return debugOnly;
+    }
+
     public boolean hasOverlayImageFromUrl() {
         return this.overlayImageUrl != null;
     }
@@ -72,13 +77,14 @@ public final class MooseRequest {
         MooseRequest rhs = (MooseRequest) obj;
         return Objects.equals(this.originalImageUrl, rhs.originalImageUrl)
                 && this.debug == rhs.debug
+                && this.debugOnly == rhs.debugOnly
                 && Objects.equals(this.overlayImageUrl, rhs.overlayImageUrl)
                 && Objects.equals(this.overlayImageName, rhs.overlayImageName);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.originalImageUrl, this.debug, this.overlayImageUrl, this.overlayImageName);
+        return Objects.hash(this.originalImageUrl, this.debug, this.debugOnly, this.overlayImageUrl, this.overlayImageName);
     }
 
     public static class MooseRequestBuilder {
@@ -98,7 +104,9 @@ public final class MooseRequest {
         }
 
         public MooseRequestBuilder withDebug(String debug) {
-            this.mooseRequest.debug = debug != null && ("true".equalsIgnoreCase(debug) || "y".equalsIgnoreCase(debug));
+            this.mooseRequest.debug = debug != null &&
+                    ("only".equalsIgnoreCase(debug) ||"true".equalsIgnoreCase(debug) || "y".equalsIgnoreCase(debug));
+            this.mooseRequest.debugOnly = "only".equalsIgnoreCase(debug);
             return this;
         }
 

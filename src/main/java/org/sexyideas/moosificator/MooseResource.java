@@ -320,19 +320,21 @@ public class MooseResource {
                     g.drawRect(rectangle.getLeft(), rectangle.getTop(), rectangle.getWidth(), rectangle.getHeight());
                 }
 
-                if (mooseRequest.hasNamedOverlayImage()) {
-                    // Add a named moose on the original image to overlay that region
-                    this.namedMooseOverlays.get(mooseRequest.getOverlayImageName()).drawImage(g, rectangle);
-                } else {
-                    if (mooseRequest.hasOverlayImageFromUrl()) {
-                        // Add overlay image from URL
-                        addOverlayImage(g, rectangle);
+                if (!mooseRequest.isDebugOnly()) {
+                    if (mooseRequest.hasNamedOverlayImage()) {
+                        // Add a named moose on the original image to overlay that region
+                        this.namedMooseOverlays.get(mooseRequest.getOverlayImageName()).drawImage(g, rectangle);
+                    } else {
+                        if (mooseRequest.hasOverlayImageFromUrl()) {
+                            // Add overlay image from URL
+                            addOverlayImage(g, rectangle);
+                        }
                     }
-                }
 
-                if (mooseRequest.hasAntlers()) {
-                    // Add antlers to the face
-                    addAntlers(g, rectangle);
+                    if (mooseRequest.hasAntlers()) {
+                        // Add antlers to the face
+                        addAntlers(g, rectangle);
+                    }
                 }
             }
         } else if (throwsException) {

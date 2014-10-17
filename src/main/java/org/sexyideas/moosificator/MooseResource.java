@@ -6,8 +6,6 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Ordering;
-import io.keen.client.java.KeenClient;
-import io.keen.client.java.exceptions.KeenException;
 import jjil.algorithm.RgbAvgGray;
 import jjil.core.Rect;
 import jjil.core.RgbImage;
@@ -23,13 +21,15 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.MalformedURLException;
-import java.net.URL;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static java.lang.String.format;
 
@@ -44,32 +44,46 @@ import static java.lang.String.format;
 public class MooseResource {
 
     private static final int MAX_IMAGE_SIZE_IN_PIXELS = 2073600;
-    private static final float MOOSE_HEAD_LEFT_OFFSET = 138.f;
-    private static final float MOOSE_HEAD_TOP_OFFSET = 120.f;
-    private static final float MOOSE_HEAD_WIDTH = 115.f;
-    private static final float MOOSE_HEAD_HEIGHT = 115.f;
+    private static final String DEFAULT_MOOSE_NAME = "moose";
 
-    private BufferedImage mooseOverlay;
     private BufferedImage noFaceFoundExceptionOverlay;
+    private BufferedImage unrecognizedMooseImage;
     private BufferedImage badUrlExceptionImage;
     private BufferedImage serverErrorMoose;
+    private BufferedImage leftAntler;
+    private BufferedImage rightAntler;
+    private HashMap<String, MooseImage> namedMooseOverlays = new HashMap<>();
     private LoadingCache<MooseRequest, Optional<BufferedImage>> imageCache;
-    private float mooseProportionRatio;
     private float noFaceOverlayRatio;
-    private float magnifyingFactor;
+
+    private static Pattern PNG_PATTERN = Pattern.compile("^(\\w+)-(\\d+)-(\\d+)-(\\d+)\\.png$");
 
     public void initializeIfRequired() {
         // This is an imperfect solution but it should be fine. If multiple requests come in at the same
         // time and there's a race condition, we'll just have wasted a few extra resources for those requests.
-        if (this.mooseOverlay == null) {
+        if (this.namedMooseOverlays.isEmpty()) {
             try {
-                this.mooseOverlay = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/moose.png"));
+                this.leftAntler = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/LeftAntler.png"));
+                this.rightAntler = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/RightAntler.png"));
+                this.unrecognizedMooseImage = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/UnrecognizedMoose.png"));
                 this.noFaceFoundExceptionOverlay = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/NoFaceFoundException.png"));
                 this.badUrlExceptionImage = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/BadUrlException.png"));
                 this.serverErrorMoose = ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/ServerErrorMoose.png"));
-                this.mooseProportionRatio = (float) this.mooseOverlay.getWidth() / (float) this.mooseOverlay.getHeight();
                 this.noFaceOverlayRatio = (float) this.noFaceFoundExceptionOverlay.getWidth() / (float) this.noFaceFoundExceptionOverlay.getHeight();
-                this.magnifyingFactor = this.mooseOverlay.getHeight() / MOOSE_HEAD_HEIGHT;
+
+                String dir = MoosificatorApp.class.getResource("/moose/named/").getPath();
+                try (DirectoryStream<java.nio.file.Path> directoryStream = Files.newDirectoryStream(Paths.get(dir))) {
+                    for (java.nio.file.Path path : directoryStream) {
+                        Matcher matcher = PNG_PATTERN.matcher(path.getFileName().toString());
+                        if (matcher.matches()) {
+                            namedMooseOverlays.put(matcher.group(1), new MooseImage(
+                                    ImageIO.read(MoosificatorApp.class.getResourceAsStream("/moose/named/" + path.getFileName())),
+                                    Float.parseFloat(matcher.group(2)),
+                                    Float.parseFloat(matcher.group(3)),
+                                    Float.parseFloat(matcher.group(4))));
+                        }
+                    }
+                }
 
             } catch (IOException e) {
                 throw Throwables.propagate(e);
@@ -84,10 +98,12 @@ public class MooseResource {
 
     @GET
     @Path("antler")
-    public Response antlerificate(@QueryParam("image") String sourceImage) {
+    public Response antlerificate(@QueryParam("image") String sourceImage,
+                                  @QueryParam("debug") String debug) {
         return processRequest(MooseRequest.newBuilder()
                 .withRequestType(MooseRequest.RequestType.ANTLER)
-                .withOriginalImageUrl(sourceImage));
+                .withOriginalImageUrl(sourceImage)
+                .withDebug(debug));
     }
 
     @GET
@@ -95,36 +111,48 @@ public class MooseResource {
     public Response moosificate(@QueryParam("image") String sourceImage,
                                 @QueryParam("debug") String debug) {
         return processRequest(MooseRequest.newBuilder()
-                .withRequestType(MooseRequest.RequestType.MOOSE)
-                .withOriginalImageUrl(sourceImage)
-                .withDebug(debug)
-                );
+                        .withRequestType(MooseRequest.RequestType.MOOSE)
+                        .withOriginalImageUrl(sourceImage)
+                        .withOverlayImageName(DEFAULT_MOOSE_NAME)
+                        .withDebug(debug));
     }
 
     @GET
     @Path("moose/{name}")
     public Response moosificateByName(@PathParam("name") String name,
-                                     @QueryParam("image") String sourceImage) {
+                                      @QueryParam("image") String sourceImage,
+                                      @QueryParam("debug") String debug) {
         return processRequest(MooseRequest.newBuilder()
                 .withRequestType(MooseRequest.RequestType.NAMED)
                 .withOriginalImageUrl(sourceImage)
-                .withOverlayImageName(name));
+                .withOverlayImageName(name)
+                .withDebug(debug));
     }
 
     @GET
     @Path("remoose")
     public Response remoosificate(@QueryParam("image") String sourceImage,
-                                  @QueryParam("overlayImage") String overlayImageUrl) {
+                                  @QueryParam("overlayImage") String overlayImageUrl,
+                                  @QueryParam("debug") String debug) {
         return processRequest(MooseRequest.newBuilder()
                 .withRequestType(MooseRequest.RequestType.MOOSE)
                 .withOriginalImageUrl(sourceImage)
-                .withOverlayImageUrl(overlayImageUrl));
+                .withOverlayImageUrl(overlayImageUrl)
+                .withDebug(debug));
     }
     private Response processRequest(MooseRequest.MooseRequestBuilder mooseRequestBuilder) {
         initializeIfRequired();
 
         try {
             MooseRequest mooseRequest = mooseRequestBuilder.build();
+
+            // Validate image overlay
+            if (mooseRequest.getOverlayImageName() != null) {
+                if (this.namedMooseOverlays.get(mooseRequest.getOverlayImageName()) == null) {
+                    throw new MooseException(MooseException.MooseExceptionType.INVALID_MOOSE_NAME);
+                }
+            }
+
             final Optional<BufferedImage> moosificationResult = this.imageCache.get(mooseRequest);
 
             if (!moosificationResult.isPresent()) {
@@ -145,13 +173,13 @@ public class MooseResource {
                 case INVALID_SOURCE_URL:
                 case INVALID_RE_MOOSE_URL:
                     return Response.ok(this.badUrlExceptionImage).build();
+                case INVALID_MOOSE_NAME:
+                    return Response.ok(this.unrecognizedMooseImage).build();
                 case MISSING_REQUEST_TYPE:
                 case MISSING_SOURCE_URL:
                 case MISSING_MOOSE_NAME:
                 case MISSING_RE_MOOSE_URL:
-                case INVALID_MOOSE_NAME:   // Probably want a cute and unique image for this one
                 default:
-                    e.printStackTrace();
                     return Response.ok(this.serverErrorMoose).build();
             }
         } catch (Throwable error) {
@@ -232,14 +260,18 @@ public class MooseResource {
                     // Add debug rectangle around the face
                     g.drawRect(rectangle.getLeft(), rectangle.getTop(), rectangle.getWidth(), rectangle.getHeight());
                 } else {
-                    float effectiveHeight = rectangle.getHeight() * this.magnifyingFactor;
-                    float effectiveWidth = effectiveHeight * this.mooseProportionRatio;
+                    if (mooseRequest.hasNamedOverlayImage()) {
+                        // Add a named moose on the original image to overlay that region
+                        this.namedMooseOverlays.get(mooseRequest.getOverlayImageName()).drawImage(g, rectangle);
+                    } else {
+                        if (mooseRequest.hasOverlayImageFromUrl()) {
+                            // TODO: Add overlay image from URL
+                        }
+                    }
 
-                    float effectiveTop = rectangle.getTop() - MOOSE_HEAD_TOP_OFFSET * effectiveHeight / this.mooseOverlay.getHeight();
-                    float effectiveLeft = rectangle.getLeft() - MOOSE_HEAD_LEFT_OFFSET * effectiveWidth / this.mooseOverlay.getWidth();
-                    // Add a moose on the original image to overlay that region
-                    g.drawImage(this.mooseOverlay, (int) effectiveLeft,
-                            (int) effectiveTop, (int) effectiveWidth, (int) effectiveHeight, null);
+                    if (mooseRequest.hasAntlers()) {
+                        // TODO: Add antlers to the face
+                    }
                 }
             }
         }

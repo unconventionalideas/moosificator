@@ -49,6 +49,18 @@ public final class MooseRequest {
         return debug;
     }
 
+    public boolean hasOverlayImageFromUrl() {
+        return this.overlayImageUrl != null;
+    }
+
+    public boolean hasNamedOverlayImage() {
+        return this.overlayImageName != null;
+    }
+
+    public boolean hasAntlers() {
+        return this.requestType == RequestType.ANTLER || this.requestType == RequestType.RE_MOOSE;
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (obj == null || obj.getClass() != getClass()) {

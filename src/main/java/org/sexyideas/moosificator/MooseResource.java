@@ -6,21 +6,31 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Ordering;
+import com.sun.imageio.plugins.gif.GIFImageReader;
+import com.sun.imageio.plugins.gif.GIFImageReaderSpi;
+import com.sun.imageio.plugins.gif.GIFImageWriter;
+import com.sun.imageio.plugins.gif.GIFImageWriterSpi;
 import jjil.algorithm.RgbAvgGray;
 import jjil.core.Rect;
 import jjil.core.RgbImage;
 import jjil.j2se.RgbImageJ2se;
 
+import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageOutputStream;
 import javax.inject.Singleton;
 import javax.ws.rs.*;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.StreamingOutput;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -153,20 +163,72 @@ public class MooseResource {
                 }
             }
 
-            final Optional<BufferedImage> moosificationResult = this.imageCache.get(mooseRequest);
+            URL imageUrl = mooseRequest.getOriginalImageUrl();
+            HttpURLConnection connection = (HttpURLConnection) imageUrl.openConnection();
+            String contentType;
+            try {
+                connection.setRequestMethod("HEAD");
+                connection.connect();
+                contentType = connection.getContentType();
+            }
+            finally {
+                connection.disconnect();
+            }
+            if (!contentType.toLowerCase().endsWith("gif")) {
+                final Optional<BufferedImage> moosificationResult = this.imageCache.get(mooseRequest);
 
-            if (!moosificationResult.isPresent()) {
-                return Response.ok(this.serverErrorMoose).build();
+                if (!moosificationResult.isPresent()) {
+                    return Response.ok(this.serverErrorMoose).build();
+                } else {
+                    StreamingOutput stream = new StreamingOutput() {
+                        @Override
+                        public void write(OutputStream os) throws IOException,
+                                WebApplicationException {
+                            ImageIO.write(moosificationResult.get(), "PNG", os);
+                        }
+                    };
+
+                    return Response.ok(stream).build();
+                }
             } else {
-                StreamingOutput stream = new StreamingOutput() {
-                    @Override
-                    public void write(OutputStream os) throws IOException,
-                            WebApplicationException {
-                        ImageIO.write(moosificationResult.get(), "PNG", os);
+                try {
+                    final ArrayList<IIOImage> frames = new ArrayList<>();
+                    final ImageReader ir = new GIFImageReader(new GIFImageReaderSpi());
+                    ir.setInput(ImageIO.createImageInputStream(imageUrl.openStream()));
+                    for (int i = 0; i < ir.getNumImages(true); i++) {
+                        frames.add(ir.readAll(i, null));
                     }
-                };
 
-                return Response.ok(stream).build();
+                    final GIFImageWriter gifImageWriter = new GIFImageWriter(new GIFImageWriterSpi());
+                    final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                    ImageOutputStream imageOutputStream = ImageIO.createImageOutputStream(bos);
+                    gifImageWriter.setOutput(imageOutputStream);
+                    gifImageWriter.prepareWriteSequence(ir.getStreamMetadata());
+                    for (IIOImage image : frames) {
+                        BufferedImage bufferedImage = (BufferedImage) image.getRenderedImage();
+                        try {
+                            BufferedImage moosificated = moosificateFrame(bufferedImage, mooseRequest, false);
+                            image.setRenderedImage(moosificated);
+                        } catch (Exception|jjil.core.Error e) {
+                            throw Throwables.propagate(e);
+                        }
+                        gifImageWriter.writeToSequence(image, null);
+                    }
+                    gifImageWriter.endWriteSequence();
+                    imageOutputStream.close();
+
+                    StreamingOutput stream = new StreamingOutput() {
+                        @Override
+                        public void write(OutputStream os) throws IOException,
+                                WebApplicationException {
+                            os.write(bos.toByteArray());
+                        }
+                    };
+
+                    return Response.ok(stream).build();
+                } catch (Throwable error) {
+                    throw Throwables.propagate(error);
+                }
             }
         } catch (MooseException e) {
             switch (e.getMooseExceptionType()) {
@@ -201,19 +263,9 @@ public class MooseResource {
         }
     }
 
-    /**
-     * Transforms a source image to a moosificated version of it.
-     *
-     * @param mooseRequest mooseRequest containing URL of the image to moosificate
-     * @return the moosificated image
-     * @throws jjil.core.Error
-     * @throws IOException
-     */
-    private BufferedImage moosificateImage(MooseRequest mooseRequest) throws jjil.core.Error, IOException {
-        MooseLogger.logEventForNewMooseSource(mooseRequest.getOriginalImageUrl());
-
-        BufferedImage sourceImage = ImageIO.read(mooseRequest.getOriginalImageUrl());
-        RgbImage rgbImage = RgbImageJ2se.toRgbImage(sourceImage);
+    private BufferedImage moosificateFrame(BufferedImage frame, MooseRequest mooseRequest, boolean throwsException)
+            throws jjil.core.Error, IOException {
+        RgbImage rgbImage = RgbImageJ2se.toRgbImage(frame);
         RgbAvgGray toGray = new RgbAvgGray();
         toGray.push(rgbImage);
 
@@ -221,13 +273,13 @@ public class MooseResource {
         Gray8DetectHaarMultiScale detectHaar = new Gray8DetectHaarMultiScale(profileInputStream, 1, 30);
 
         // We either keep the source size if small enough or we cap it to be fewer pixels than our max
-        int canvasWidth = sourceImage.getWidth();
-        int canvasHeight = sourceImage.getHeight();
-        double originalSurface = sourceImage.getWidth() * sourceImage.getHeight();
+        int canvasWidth = frame.getWidth();
+        int canvasHeight = frame.getHeight();
+        double originalSurface = frame.getWidth() * frame.getHeight();
         if (originalSurface > MAX_IMAGE_SIZE_IN_PIXELS) {
             double resizeFactor = Math.sqrt(MAX_IMAGE_SIZE_IN_PIXELS / originalSurface);
-            canvasWidth = (int) (sourceImage.getWidth() * resizeFactor);
-            canvasHeight = (int) (sourceImage.getHeight() * resizeFactor);
+            canvasWidth = (int) (frame.getWidth() * resizeFactor);
+            canvasHeight = (int) (frame.getHeight() * resizeFactor);
         }
 
         BufferedImage combined = new BufferedImage(canvasWidth, canvasHeight,
@@ -235,24 +287,10 @@ public class MooseResource {
         List<Rect> rectangles = detectHaar.pushAndReturn(toGray.getFront());
         Graphics g = combined.getGraphics();
 
-        g.drawImage(sourceImage, 0, 0, canvasWidth, canvasHeight, null);
+        g.drawImage(frame, 0, 0, canvasWidth, canvasHeight, null);
 
         // Overlay a nice NoFaceFound on the image and return that
-        if (rectangles.isEmpty()) {
-            int overlayWidth;
-            int overlayHeight;
-            // Set the size of our overlay according to the largest side of the source image
-            if (canvasWidth > canvasHeight) {
-                overlayWidth = (int) (canvasWidth * 0.5);
-                overlayHeight = (int) (overlayWidth / this.noFaceOverlayRatio);
-            } else {
-                overlayHeight = (int) (canvasWidth * 0.5);
-                overlayWidth = (int) (overlayHeight * this.noFaceOverlayRatio);
-            }
-
-            g.drawImage(this.noFaceFoundExceptionOverlay, (int) ((canvasWidth - overlayWidth) / 2.f),
-                    (int) ((canvasHeight - overlayHeight) / 2.), overlayWidth, overlayHeight, null);
-        } else {
+        if (!rectangles.isEmpty()) {
             List<Rect> uniqueRectangles = findDistinctFaces(rectangles);
             for (Rect rectangle : uniqueRectangles) {
 
@@ -276,9 +314,37 @@ public class MooseResource {
                     addAntlers(g, rectangle);
                 }
             }
+        } else if (throwsException) {
+            int overlayWidth;
+            int overlayHeight;
+            // Set the size of our overlay according to the largest side of the source image
+            if (canvasWidth > canvasHeight) {
+                overlayWidth = (int) (canvasWidth * 0.5);
+                overlayHeight = (int) (overlayWidth / this.noFaceOverlayRatio);
+            } else {
+                overlayHeight = (int) (canvasWidth * 0.5);
+                overlayWidth = (int) (overlayHeight * this.noFaceOverlayRatio);
+            }
+
+            g.drawImage(this.noFaceFoundExceptionOverlay, (int) ((canvasWidth - overlayWidth) / 2.f),
+                    (int) ((canvasHeight - overlayHeight) / 2.), overlayWidth, overlayHeight, null);
         }
 
         return combined;
+    }
+
+    /**
+     * Transforms a source image to a moosificated version of it.
+     *
+     * @param mooseRequest mooseRequest containing URL of the image to moosificate
+     * @return the moosificated image
+     * @throws jjil.core.Error
+     * @throws IOException
+     */
+    private BufferedImage moosificateImage(MooseRequest mooseRequest) throws jjil.core.Error, IOException {
+        MooseLogger.logEventForNewMooseSource(mooseRequest.getOriginalImageUrl());
+        BufferedImage singleFrame = ImageIO.read(mooseRequest.getOriginalImageUrl());
+        return moosificateFrame(singleFrame, mooseRequest, true);
     }
 
     private void addOverlayImage(Graphics g, Rect rectangle) {

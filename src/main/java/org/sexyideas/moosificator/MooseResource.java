@@ -64,6 +64,7 @@ public class MooseResource {
     private BufferedImage rightAntler;
     private HashMap<String, MooseImage> namedMooseOverlays = new HashMap<>();
     private LoadingCache<MooseRequest, Optional<BufferedImage>> imageCache;
+    private LoadingCache<MooseRequest, Optional<byte[]>> gifCache;
     private float noFaceOverlayRatio;
 
     private static Pattern PNG_PATTERN = Pattern.compile("^(\\w+)-(\\d+)-(\\d+)-(\\d+)\\.png$");
@@ -103,6 +104,11 @@ public class MooseResource {
                     .maximumSize(20)
                     .expireAfterWrite(1, TimeUnit.DAYS)
                     .build(new MoosificatorCacheLoader());
+
+            this.gifCache = CacheBuilder.<MooseRequest, Optional<BufferedImage>>newBuilder()
+                    .maximumSize(5)
+                    .expireAfterWrite(1, TimeUnit.DAYS)
+                    .build(new MoosificatorGifCacheLoader());
         }
     }
 
@@ -191,43 +197,18 @@ public class MooseResource {
                     return Response.ok(stream).build();
                 }
             } else {
-                try {
-                    final ArrayList<IIOImage> frames = new ArrayList<>();
-                    final ImageReader ir = new GIFImageReader(new GIFImageReaderSpi());
-                    ir.setInput(ImageIO.createImageInputStream(imageUrl.openStream()));
-                    for (int i = 0; i < ir.getNumImages(true); i++) {
-                        frames.add(ir.readAll(i, null));
-                    }
-
-                    final GIFImageWriter gifImageWriter = new GIFImageWriter(new GIFImageWriterSpi());
-                    final ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                    ImageOutputStream imageOutputStream = ImageIO.createImageOutputStream(bos);
-                    gifImageWriter.setOutput(imageOutputStream);
-                    gifImageWriter.prepareWriteSequence(ir.getStreamMetadata());
-                    for (IIOImage image : frames) {
-                        BufferedImage bufferedImage = (BufferedImage) image.getRenderedImage();
-                        try {
-                            BufferedImage moosificated = moosificateFrame(bufferedImage, mooseRequest, false);
-                            image.setRenderedImage(moosificated);
-                        } catch (Exception|jjil.core.Error e) {
-                            throw Throwables.propagate(e);
-                        }
-                        gifImageWriter.writeToSequence(image, null);
-                    }
-                    gifImageWriter.endWriteSequence();
-                    imageOutputStream.close();
-
+                final Optional<byte[]> moosificationResult = this.gifCache.get(mooseRequest);
+                if (!moosificationResult.isPresent()) {
+                    return Response.ok(this.serverErrorMoose).build();
+                } else {
                     StreamingOutput stream = new StreamingOutput() {
                         @Override
                         public void write(OutputStream os) throws IOException,
                                 WebApplicationException {
-                            os.write(bos.toByteArray());
+                            os.write(moosificationResult.get());
                         }
                     };
-
                     return Response.ok(stream).build();
-                } catch (Throwable error) {
-                    throw Throwables.propagate(error);
                 }
             }
         } catch (MooseException e) {
@@ -257,6 +238,46 @@ public class MooseResource {
             } catch (Throwable e) {
                 MooseLogger.logEventForErrorMoosificating(mooseRequest, e);
                 MooseLogger.getLogger().log(Level.WARNING, format("Error generating image for url [%s]",
+                        mooseRequest.getOriginalImageUrl().toExternalForm()), e);
+                return Optional.absent();
+            }
+        }
+    }
+
+    public class MoosificatorGifCacheLoader extends CacheLoader<MooseRequest, Optional<byte[]>> {
+        @Override
+        public Optional<byte[]> load(MooseRequest mooseRequest) throws Exception {
+
+            try {
+                final ArrayList<IIOImage> frames = new ArrayList<>();
+                final ImageReader ir = new GIFImageReader(new GIFImageReaderSpi());
+                ir.setInput(ImageIO.createImageInputStream(mooseRequest.getOriginalImageUrl().openStream()));
+                for (int i = 0; i < ir.getNumImages(true); i++) {
+                    frames.add(ir.readAll(i, null));
+                }
+
+                final GIFImageWriter gifImageWriter = new GIFImageWriter(new GIFImageWriterSpi());
+                final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                ImageOutputStream imageOutputStream = ImageIO.createImageOutputStream(bos);
+                gifImageWriter.setOutput(imageOutputStream);
+                gifImageWriter.prepareWriteSequence(ir.getStreamMetadata());
+                for (IIOImage image : frames) {
+                    BufferedImage bufferedImage = (BufferedImage) image.getRenderedImage();
+                    try {
+                        BufferedImage moosificated = moosificateFrame(bufferedImage, mooseRequest, false);
+                        image.setRenderedImage(moosificated);
+                    } catch (Exception|jjil.core.Error e) {
+                        throw Throwables.propagate(e);
+                    }
+                    gifImageWriter.writeToSequence(image, null);
+                }
+                gifImageWriter.endWriteSequence();
+                imageOutputStream.close();
+
+                return Optional.of(bos.toByteArray());
+            } catch (Throwable e) {
+                MooseLogger.logEventForErrorMoosificating(mooseRequest, e);
+                MooseLogger.getLogger().log(Level.WARNING, format("Error generating animated gif for url [%s]",
                         mooseRequest.getOriginalImageUrl().toExternalForm()), e);
                 return Optional.absent();
             }
